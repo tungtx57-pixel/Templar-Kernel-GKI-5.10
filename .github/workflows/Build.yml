@@ -23,11 +23,16 @@ jobs:
 
       - name: Setup clang
         run: |
-          wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main-kernel-build-2023/clang-r487747c.tar.gz -O clang.tar.gz
+          # Thêm cờ --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 10 để tự thử lại khi tải lỗi
+          wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 10 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main-kernel-build-2023/clang-r487747c.tar.gz -O clang.tar.gz
+          
+          # Kiểm tra file tải về có bị lỗi không trước khi giải nén
+          tar -tzf clang.tar.gz > /dev/null || { echo "File bị hỏng, tải lại..."; exit 1; }
+          
           mkdir -p ${GITHUB_WORKSPACE}/clang
           tar -C ${GITHUB_WORKSPACE}/clang -zxf clang.tar.gz
           echo "PATH=${GITHUB_WORKSPACE}/clang/bin:$PATH" >> $GITHUB_ENV
-
+          
       - name: Integrate KittiSU
         run: |
           curl -LSs "https://raw.githubusercontent.com/anotheranhiutangerine/KittiSU/main/kernel/setup.sh" | bash
