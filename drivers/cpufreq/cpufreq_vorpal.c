@@ -111,8 +111,13 @@ extern int rfx_setattr_sugov_gki510(struct task_struct *t);
  * EMA plus PELT already carry any rise a window or burst floor covered. ---- */
 /* Little daily cap: just above the V/f knee. */
 #define RFX_D_LITTLE_CAP_PCT		60
-/* Sustained caps: long foreground/background work at lower voltage. */
-#define RFX_D_LITTLE_SUSTAINED_CAP_PCT	80
+/* Sustained cap once the latch holds. Little is the never-render cluster on
+ * both topologies, so this is the only tier whose ceiling can come down
+ * without a frame noticing -- and it is the tier that carries the compositor
+ * and the background of a screen-on workload, i.e. exactly where sustained
+ * drain lives. Kept well above the base cap so the latch still un-clips a
+ * genuinely loaded cluster; only the size of the un-clip is trimmed. */
+#define RFX_D_LITTLE_SUSTAINED_CAP_PCT	72
 /* Sustained latches, skewed 1.25x (real demand on at ~62%, off at ~44%). Little
  * shares the philosophy of the Big/Prime pair below: the sustained cap may only
  * open under real load, so ordinary foreground work stays on the 60% base cap. */
