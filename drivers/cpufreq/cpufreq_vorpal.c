@@ -76,7 +76,7 @@ extern int rfx_setattr_sugov_gki510(struct task_struct *t);
 /* Gaming down-rate gate. NOT rate-neutral -- only ever shorten it: the slew
  * window resets on a commit in either direction, this gate only on a downward
  * one, so widening it ratchets the clock up. */
-#define RFX_GAMING_DOWN_US		4000
+#define RFX_GAMING_DOWN_US		3000
 
 /* Gaming floors, percent of the effective ceiling. NO cluster is capped: every
  * cluster tracks demand up to fceil. Floors only cover a cold landing, and they
