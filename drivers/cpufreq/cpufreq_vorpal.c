@@ -90,8 +90,10 @@ extern int rfx_setattr_sugov_gki510(struct task_struct *t);
  * burst chase -> power spike -> limiter step -> cpu sag -> gpu sag. */
 /* The 09-09 cut to 52 was made for one title and is the only gaming change
  * since the state both devices were verified on; measured on the device it
- * came back as a gaming regression, so it is reverted to that value. */
-#define RFX_G_PRIME_FLOOR_PCT		58
+ * came back as a gaming regression, so it goes back to the verified 58 --
+ * expressed against the derated ceiling, so the effective resting floor is
+ * unchanged (63% of 92% is 58%). */
+#define RFX_G_PRIME_FLOOR_PCT		63
 #define RFX_G_BIG_FLOOR_PCT		58
 /* Warmup floor, both render tiers: spawn/asset load only, never steady state. */
 #define RFX_G_WARMUP_FLOOR_PCT		80
@@ -215,18 +217,19 @@ extern int rfx_setattr_sugov_gki510(struct task_struct *t);
  * stepping to the relief floor. */
 #define RFX_G_COOL_DEEP_PCT		60
 
-/* Gaming ceiling scale, percent of the thermal ceiling, for the tiers that
- * never render -- Little, and the spill tier on a three-tier SoC. See the
- * scope rule in rfx_target_freq(). 100 = disabled, which is the shipped
- * value: it was measured at 92 on both devices and is not free. On the
- * three-tier part it bought 0.8W but cost 0.2pp of jank; on the two-tier part
- * it RAISED total power, because rfx_cap_is_prime() needs a third tier, so
- * the fastest cluster there IS the render tier and the derate clocked the
- * frame path down instead of buying idle. The scope below keeps it off the
- * render tier, but note it interacts with the floors: they are percentages of
- * THIS ceiling, so a derate lowers every floor with it (58% of 92% is 53%).
- * Re-enable only against the floors, not as a lone constant. */
-#define RFX_G_CEIL_PCT			100
+/* Gaming ceiling scale, percent of the thermal ceiling, for the SPILL tier
+ * only (rfx_cap_is_prime). Every failure mode of this lever is measured:
+ * applied uniformly it cost 0.2pp of jank on the three-tier part, because the
+ * render tier was being clocked down, and it RAISED total power on the
+ * two-tier part, because rfx_cap_is_prime() needs a third tier -- the fastest
+ * cluster there IS the render tier, so the derate lengthened execution instead
+ * of buying idle. Scoping it to prime fixes both by construction: prime is
+ * only ever true where a dedicated non-render spill tier exists, so a
+ * two-tier SoC never derates anything, and Little is left alone because
+ * clocking a cluster that is merely busy does not buy idle either.
+ * Floors are percentages of THIS ceiling, so RFX_G_PRIME_FLOOR_PCT is scaled
+ * against it to hold the effective resting floor where it was measured. */
+#define RFX_G_CEIL_PCT			92
 
 #define IOWAIT_BOOST_MIN		(SCHED_CAPACITY_SCALE / 8)
 
@@ -647,15 +650,10 @@ static unsigned int rfx_target_freq(struct rfx_policy *p, unsigned long util,
 		return pol->cur;
 	fceil = rfx_pct(fmax, fceil_pct);
 	fceil = clamp(fceil, fmin, fmax);
-	/* Gaming derate. Applied before the util->freq clamp, so a cluster under
-	 * demand keeps its exact util-mapped frequency and only the ones pinned
-	 * at fceil step down. Scoped to the tiers that never render: Little, and
-	 * the spill tier where a third tier exists (rfx_cap_is_prime already
-	 * requires it). Derating the render tier bought 0.8W but cost 0.2pp of
-	 * jank on the three-tier part; on a two-tier part the render cluster IS
-	 * the top tier, so the same derate clocks the frame path down instead --
-	 * execution just takes longer and total energy goes UP. */
-	if (gaming && (little || prime))
+	/* Gaming derate, spill tier only -- see RFX_G_CEIL_PCT. Applied before the
+	 * util->freq clamp, so a cluster under demand keeps its exact util-mapped
+	 * frequency and only an already-pinned one steps down. */
+	if (gaming && prime)
 		fceil = max(rfx_pct(fceil, RFX_G_CEIL_PCT), fmin);
 
 	util = rfx_apply_headroom(util, max_cap, gaming, little);
@@ -1846,6 +1844,11 @@ static int __init vorpal_gov_init(void)
 	/* 100 means "disabled" deliberately. Below 50 the derate subsumes the
 	 * floors and the band stops being a ceiling at all. */
 	BUILD_BUG_ON(RFX_G_CEIL_PCT > 100 || RFX_G_CEIL_PCT < 50);
+	/* The prime floor is expressed against the derated ceiling, so the two are
+	 * a calibration pair: a deeper derate must not drag the derived floor down
+	 * to the idle floor, where it stops being a floor at all. */
+	BUILD_BUG_ON(RFX_G_PRIME_FLOOR_PCT * RFX_G_CEIL_PCT / 100 <=
+		     RFX_G_IDLE_FLOOR_PCT);
 	/* Above 100 the shortcut is unreachable and the constant reads as a
 	 * threshold that was never applied. 100 means "disabled" deliberately. */
 	BUILD_BUG_ON(RFX_SAT_TO_MAX_GAMING_PCT > 100);
