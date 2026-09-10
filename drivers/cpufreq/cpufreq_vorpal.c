@@ -109,8 +109,10 @@ extern int rfx_setattr_sugov_gki510(struct task_struct *t);
 #define RFX_D_LITTLE_CAP_PCT		60
 /* Sustained caps: long foreground/background work at lower voltage. */
 #define RFX_D_LITTLE_SUSTAINED_CAP_PCT	80
-/* Sustained latches, skewed 1.25x (real demand on at ~58%, off at ~44%). */
-#define RFX_D_LITTLE_LIFT_PCT		72
+/* Sustained latches, skewed 1.25x (real demand on at ~62%, off at ~44%). Little
+ * shares the philosophy of the Big/Prime pair below: the sustained cap may only
+ * open under real load, so ordinary foreground work stays on the 60% base cap. */
+#define RFX_D_LITTLE_LIFT_PCT		78
 #define RFX_D_LITTLE_DROP_PCT		55
 /* Big/Prime share one latch; a sustained cap may never exceed 100. The lift
  * threshold reads the same 1.25x-skewed demand as the gaming gates. The 09-09
@@ -209,6 +211,13 @@ extern int rfx_setattr_sugov_gki510(struct task_struct *t);
  * down proportionally, so the clock walks with the ceiling instead of
  * stepping to the relief floor. */
 #define RFX_G_COOL_DEEP_PCT		60
+
+/* Gaming ceiling scale, percent of the thermal ceiling. Uniform across every
+ * cluster, so unlike a per-cluster cap it cannot skew EAS misfit: it slides the
+ * whole OPP ladder down and only the clusters that were already pinned at fceil
+ * lose frequency. The cool-down band reads the platform's own throttling
+ * (fceil_pct), sampled before this, so relief still tracks the real limiter. */
+#define RFX_G_CEIL_PCT			92
 
 #define IOWAIT_BOOST_MIN		(SCHED_CAPACITY_SCALE / 8)
 
@@ -629,6 +638,11 @@ static unsigned int rfx_target_freq(struct rfx_policy *p, unsigned long util,
 		return pol->cur;
 	fceil = rfx_pct(fmax, fceil_pct);
 	fceil = clamp(fceil, fmin, fmax);
+	/* Gaming runs the whole die at a fixed fraction of the ceiling. Applied
+	 * before the util->freq clamp, so a cluster under demand keeps its exact
+	 * util-mapped frequency and only the ones pinned at fceil step down. */
+	if (gaming)
+		fceil = max(rfx_pct(fceil, RFX_G_CEIL_PCT), fmin);
 
 	util = rfx_apply_headroom(util, max_cap, gaming, little);
 
@@ -1815,6 +1829,9 @@ static int __init vorpal_gov_init(void)
 	BUILD_BUG_ON(RFX_G_COOL_DEEP_PCT >= RFX_G_COOL_ENTER_PCT);
 	/* Gate at 100 would divide by zero in the headroom ramp. */
 	BUILD_BUG_ON(RFX_HEADROOM_GAMING_GATE >= 100);
+	/* 100 would make the gaming scale a no-op knob; below 50 the derate
+	 * subsumes the floors and the band stops being a ceiling at all. */
+	BUILD_BUG_ON(RFX_G_CEIL_PCT > 100 || RFX_G_CEIL_PCT < 50);
 	/* Above 100 the shortcut is unreachable and the constant reads as a
 	 * threshold that was never applied. 100 means "disabled" deliberately. */
 	BUILD_BUG_ON(RFX_SAT_TO_MAX_GAMING_PCT > 100);
