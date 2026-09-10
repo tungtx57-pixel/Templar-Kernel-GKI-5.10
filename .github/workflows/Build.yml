@@ -40,9 +40,15 @@ jobs:
       - name: Build
         run: |
           export PATH="${GITHUB_WORKSPACE}/clang/bin:$PATH"
-          export KBUILD_BUILD_USER=tungtx0507
+          export KBUILD_BUILD_USER=Tung
           export KBUILD_BUILD_HOST=Templar
           make -j$(nproc --all) O=out ARCH=arm64 gki_defconfig
+
+          ./scripts/config --file out/.config \
+            -e FRAME_WARN || true
+          sed -i 's/^CONFIG_FRAME_WARN=.*/CONFIG_FRAME_WARN=8192/' out/.config
+          grep CONFIG_FRAME_WARN out/.config
+
           make -j$(nproc --all) O=out ARCH=arm64 \
             Image \
             CC=clang LLVM=1 LLVM_IAS=1 \
