@@ -111,13 +111,12 @@ extern int rfx_setattr_sugov_gki510(struct task_struct *t);
  * EMA plus PELT already carry any rise a window or burst floor covered. ---- */
 /* Little daily cap: just above the V/f knee. */
 #define RFX_D_LITTLE_CAP_PCT		60
-/* Sustained cap once the latch holds. Little is the never-render cluster on
- * both topologies, so this is the only tier whose ceiling can come down
- * without a frame noticing -- and it is the tier that carries the compositor
- * and the background of a screen-on workload, i.e. exactly where sustained
- * drain lives. Kept well above the base cap so the latch still un-clips a
- * genuinely loaded cluster; only the size of the un-clip is trimmed. */
-#define RFX_D_LITTLE_SUSTAINED_CAP_PCT	72
+/* Sustained cap once the latch holds. Measured at 72 on the device and it made
+ * things WORSE (active 17.50 -> 21.43%/hr): Little is not pinned across the
+ * whole latch band, and clocking a merely-busy cluster down does not buy idle
+ * -- the same lesson the two-tier part taught about derating. Back to the
+ * value the profile was tuned around. */
+#define RFX_D_LITTLE_SUSTAINED_CAP_PCT	80
 /* Sustained latches, skewed 1.25x (real demand on at ~62%, off at ~44%). Little
  * shares the philosophy of the Big/Prime pair below: the sustained cap may only
  * open under real load, so ordinary foreground work stays on the 60% base cap. */
@@ -148,12 +147,12 @@ extern int rfx_setattr_sugov_gki510(struct task_struct *t);
 #define RFX_EMA_MAX_STEPS		32	/* cap: 8ms, one frame gap */
 
 /* ---- Headroom above demand, percent. Stacks on the 25% DVFS margin already
- * applied by rfx_get_util_gki510, so this only raises the resting OPP. Trimmed
- * to 2/1: the util getter's margin already covers OPP granularity, so the old
- * 4/2 only added a resting bin for no measured latency gain. Rise is unaffected
- * (up-rate 0 on Big/Prime), so this is pure daily resting-voltage saving. ---- */
-#define RFX_HEADROOM_DAILY_HIGH		2
-#define RFX_HEADROOM_DAILY_MID		1
+ * applied by rfx_get_util_gki510, so it only raises the resting OPP.
+ * Daily has none. The margin already covers OPP granularity, so the tiered
+ * curve this replaces only ever added a resting bin -- and it sat exactly in
+ * the demand band that light browsing and scrolling run in, which is the load
+ * the daily profile is judged on. Nothing here touches a cap, so no clip edge
+ * moves and no latency is traded for it. Only gaming keeps a ramp. ---- */
 /* Gaming headroom, phased in linearly from the GATE: below it the resting OPP
  * is untouched, above it a frame is near budget and this closes the gap. Flat
  * at every level was resting-power cost; zero at every level cost the frame. */
@@ -541,11 +540,11 @@ static unsigned long rfx_ema(unsigned long old, unsigned long val, u64 time,
 
 /*
  * Request slightly more capacity than measured, so we land on an OPP with room
- * to spare. Gaming uses a phased linear ramp; daily a tiered curve -- nothing
- * at low util (battery), more as util climbs (responsiveness).
+ * to spare. Gaming uses a phased linear ramp; daily gets none -- see the note
+ * above RFX_HEADROOM_GAMING.
  */
 static unsigned long rfx_apply_headroom(unsigned long util, unsigned long max_cap,
-					bool gaming, bool little)
+					bool gaming)
 {
 	unsigned int upct;
 
@@ -557,33 +556,15 @@ static unsigned long rfx_apply_headroom(unsigned long util, unsigned long max_ca
 			      RFX_SAT_TO_MAX_DAILY_PCT))
 		return max_cap;
 
-	if (gaming) {
-		if (upct <= RFX_HEADROOM_GAMING_GATE)
-			return util;
-		/* One expression: truncating to whole percent first would drop
-		 * the bottom of the ramp. */
-		return min(util + max_cap * RFX_HEADROOM_GAMING *
-				  (upct - RFX_HEADROOM_GAMING_GATE) /
-				  ((100 - RFX_HEADROOM_GAMING_GATE) * 100),
-			   max_cap);
-	}
-
-	if (little) {
-		if (upct >= 65)
-			return min(util + util * RFX_HEADROOM_DAILY_HIGH / 100, max_cap);
-		if (upct >= 40)
-			return min(util + util * RFX_HEADROOM_DAILY_MID / 100, max_cap);
+	if (!gaming || upct <= RFX_HEADROOM_GAMING_GATE)
 		return util;
-	}
 
-	if (upct >= 70)
-		return min(util + util * RFX_HEADROOM_DAILY_HIGH / 100, max_cap);
-	if (upct >= 45)
-		return min(util + util * RFX_HEADROOM_DAILY_MID / 100, max_cap);
-
-	/* Below 45%: none -- the 25% DVFS margin from the util getter already
-	 * covers OPP granularity. */
-	return util;
+	/* One expression: truncating to whole percent first would drop the bottom
+	 * of the ramp. */
+	return min(util + max_cap * RFX_HEADROOM_GAMING *
+			  (upct - RFX_HEADROOM_GAMING_GATE) /
+			  ((100 - RFX_HEADROOM_GAMING_GATE) * 100),
+		   max_cap);
 }
 
 /* ===================================================================== */
@@ -641,7 +622,7 @@ static unsigned int rfx_target_freq(struct rfx_policy *p, unsigned long util,
 	fceil = rfx_pct(fmax, fceil_pct);
 	fceil = clamp(fceil, fmin, fmax);
 
-	util = rfx_apply_headroom(util, max_cap, gaming, little);
+	util = rfx_apply_headroom(util, max_cap, gaming);
 
 	/* arch capacity 1024 is defined against cpuinfo max; only the
 	 * percentage shape uses fmax. */
@@ -1777,12 +1758,16 @@ static void __init rfx_selfcheck(void)
 	 * rfx_pct and the upct divide have both truncated. */
 	gate = rfx_pct(SCHED_CAPACITY_SCALE, RFX_HEADROOM_GAMING_GATE);
 	over = rfx_pct(SCHED_CAPACITY_SCALE, RFX_HEADROOM_GAMING_GATE + 2);
-	WARN_ON(rfx_apply_headroom(gate, SCHED_CAPACITY_SCALE, true, false) !=
-		gate);
-	WARN_ON(rfx_apply_headroom(over, SCHED_CAPACITY_SCALE, true, false) <=
-		over);
+	WARN_ON(rfx_apply_headroom(gate, SCHED_CAPACITY_SCALE, true) != gate);
+	WARN_ON(rfx_apply_headroom(over, SCHED_CAPACITY_SCALE, true) <= over);
 	WARN_ON(rfx_apply_headroom(SCHED_CAPACITY_SCALE - 1, SCHED_CAPACITY_SCALE,
-				   true, false) > SCHED_CAPACITY_SCALE);
+				   true) > SCHED_CAPACITY_SCALE);
+	/* Daily has no ramp: the value must come back untouched at every level,
+	 * including the band the ramp used to occupy. */
+	WARN_ON(rfx_apply_headroom(over, SCHED_CAPACITY_SCALE, false) != over);
+	WARN_ON(rfx_apply_headroom(rfx_pct(SCHED_CAPACITY_SCALE, 80),
+				   SCHED_CAPACITY_SCALE, false) !=
+		rfx_pct(SCHED_CAPACITY_SCALE, 80));
 
 	/* Ramp: instant to 100, zero at RAMP_DOWN_MS, and a sub-percent step
 	 * keeps its remainder instead of stalling at 100 forever. */
