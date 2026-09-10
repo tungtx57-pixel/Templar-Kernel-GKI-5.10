@@ -88,7 +88,10 @@ extern int rfx_setattr_sugov_gki510(struct task_struct *t);
  * tier), so its floor is pure resting power — the heat that pushes the
  * die over the limiter's step threshold and starts the spike cycle:
  * burst chase -> power spike -> limiter step -> cpu sag -> gpu sag. */
-#define RFX_G_PRIME_FLOOR_PCT		52
+/* The 09-09 cut to 52 was made for one title and is the only gaming change
+ * since the state both devices were verified on; measured on the device it
+ * came back as a gaming regression, so it is reverted to that value. */
+#define RFX_G_PRIME_FLOOR_PCT		58
 #define RFX_G_BIG_FLOOR_PCT		58
 /* Warmup floor, both render tiers: spawn/asset load only, never steady state. */
 #define RFX_G_WARMUP_FLOOR_PCT		80
@@ -214,12 +217,16 @@ extern int rfx_setattr_sugov_gki510(struct task_struct *t);
 
 /* Gaming ceiling scale, percent of the thermal ceiling, for the tiers that
  * never render -- Little, and the spill tier on a three-tier SoC. See the
- * scope rule in rfx_target_freq(): the render tier keeps its full ceiling,
- * because on a two-tier part it IS the top tier and the derate there only
- * lengthens execution instead of buying idle. The cool-down band reads the
- * platform's own throttling (fceil_pct), sampled before this, so relief still
- * tracks the real limiter. */
-#define RFX_G_CEIL_PCT			92
+ * scope rule in rfx_target_freq(). 100 = disabled, which is the shipped
+ * value: it was measured at 92 on both devices and is not free. On the
+ * three-tier part it bought 0.8W but cost 0.2pp of jank; on the two-tier part
+ * it RAISED total power, because rfx_cap_is_prime() needs a third tier, so
+ * the fastest cluster there IS the render tier and the derate clocked the
+ * frame path down instead of buying idle. The scope below keeps it off the
+ * render tier, but note it interacts with the floors: they are percentages of
+ * THIS ceiling, so a derate lowers every floor with it (58% of 92% is 53%).
+ * Re-enable only against the floors, not as a lone constant. */
+#define RFX_G_CEIL_PCT			100
 
 #define IOWAIT_BOOST_MIN		(SCHED_CAPACITY_SCALE / 8)
 
@@ -1836,8 +1843,8 @@ static int __init vorpal_gov_init(void)
 	BUILD_BUG_ON(RFX_G_COOL_DEEP_PCT >= RFX_G_COOL_ENTER_PCT);
 	/* Gate at 100 would divide by zero in the headroom ramp. */
 	BUILD_BUG_ON(RFX_HEADROOM_GAMING_GATE >= 100);
-	/* 100 would make the gaming scale a no-op knob; below 50 the derate
-	 * subsumes the floors and the band stops being a ceiling at all. */
+	/* 100 means "disabled" deliberately. Below 50 the derate subsumes the
+	 * floors and the band stops being a ceiling at all. */
 	BUILD_BUG_ON(RFX_G_CEIL_PCT > 100 || RFX_G_CEIL_PCT < 50);
 	/* Above 100 the shortcut is unreachable and the constant reads as a
 	 * threshold that was never applied. 100 means "disabled" deliberately. */
