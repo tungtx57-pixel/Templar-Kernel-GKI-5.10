@@ -1,0 +1,69 @@
+name: Build Templar Kernel (NoBore + KittiSU)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ Templar-NoBore ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout kernel
+        uses: actions/checkout@v4
+        with:
+          repository: tungtx57-pixel/Templar-Kernel-GKI-5.10
+          ref: Templar-NoBore
+          fetch-depth: 1
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git ccache bc bison flex libssl-dev libelf-dev python3 zip curl
+
+      - name: Setup clang
+        run: |
+          wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main-kernel-build-2023/clang-r487747c.tar.gz -O clang.tar.gz
+          mkdir -p ${GITHUB_WORKSPACE}/clang
+          tar -C ${GITHUB_WORKSPACE}/clang -zxf clang.tar.gz
+          echo "PATH=${GITHUB_WORKSPACE}/clang/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Integrate KittiSU
+        run: |
+          curl -LSs "https://raw.githubusercontent.com/anotheranhiutangerine/KittiSU/main/kernel/setup.sh" | bash
+
+      - name: Build
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/clang/bin:$PATH"
+          export KBUILD_BUILD_USER=tungtx0507
+          export KBUILD_BUILD_HOST=Templar
+          make -j$(nproc --all) O=out ARCH=arm64 gki_defconfig
+          make -j$(nproc --all) O=out ARCH=arm64 \
+            Image \
+            CC=clang LLVM=1 LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
+
+      - name: Check Image
+        run: ls -la out/arch/arm64/boot/Image
+
+      - name: Pack AnyKernel3
+        run: |
+          git clone --depth 1 -b marble https://github.com/tungtx57-pixel/AnyKernel3-Templar-KittiSU AnyKernel3
+          cp out/arch/arm64/boot/Image AnyKernel3/
+          cd AnyKernel3
+          rm -rf .git .github README.md
+          zip -r9 ../Templar-NoBore-KittiSU-$(date +%Y%m%d).zip * -x .git README.md "*placeholder"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Templar-NoBore-KittiSU
+          path: Templar-NoBore-KittiSU-*.zip
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          files: Templar-NoBore-KittiSU-*.zip
+          tag_name: nobore-kittisu-${{ github.run_number }}
