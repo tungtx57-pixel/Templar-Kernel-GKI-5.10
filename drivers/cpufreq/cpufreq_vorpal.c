@@ -47,7 +47,7 @@
 
 /* Sched-core helpers (owned by core sched): util getter, DL-bandwidth check,
  * SUGOV DL class setter for the slow-path worker. */
-extern void rfx_get_util_gki510(int cpu, unsigned long boost,
+extern void rfx_get_util_gki510(int cpu, unsigned long boost, bool bound_rt,
 				unsigned long *util, unsigned long *bwmin);
 extern bool rfx_dl_bw_exceeded_gki510(int cpu, unsigned long bwmin);
 extern int rfx_setattr_sugov_gki510(struct task_struct *t);
@@ -865,9 +865,12 @@ static unsigned long rfx_iowait_apply(struct rfx_cpu *rfx_c, u64 time,
 	return rfx_c->iowait_boost * max_cap >> SCHED_CAPACITY_SHIFT;
 }
 
-static void rfx_get_util(struct rfx_cpu *rfx_c, unsigned long boost)
+static void rfx_get_util(struct rfx_cpu *rfx_c, unsigned long boost, bool gaming)
 {
-	rfx_get_util_gki510(rfx_c->cpu, boost, &rfx_c->util, &rfx_c->bwmin);
+	/* Daily bounds the RT term; gaming keeps the unbounded signal it was
+	 * verified with. See rfx_get_util_gki510(). */
+	rfx_get_util_gki510(rfx_c->cpu, boost, !gaming, &rfx_c->util,
+			    &rfx_c->bwmin);
 }
 
 static inline void rfx_ignore_dl_rate_limit(struct rfx_cpu *rfx_c)
@@ -994,7 +997,7 @@ static unsigned int rfx_next_freq(struct rfx_cpu *rfx_c, u64 time, bool gaming)
 		unsigned long jb, je;
 
 		jb = rfx_iowait_apply(jc, time, max_cap);
-		rfx_get_util(jc, jb);
+		rfx_get_util(jc, jb, gaming);
 		je = max(jc->util, jb);
 
 		if (je > max_util)
