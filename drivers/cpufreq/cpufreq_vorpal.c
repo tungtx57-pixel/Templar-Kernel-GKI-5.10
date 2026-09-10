@@ -113,19 +113,17 @@ extern int rfx_setattr_sugov_gki510(struct task_struct *t);
 #define RFX_D_LITTLE_LIFT_PCT		72
 #define RFX_D_LITTLE_DROP_PCT		55
 /* Big/Prime share one latch; a sustained cap may never exceed 100. The lift
- * threshold reads the same 1.25x-skewed demand as the gaming gates. */
+ * threshold reads the same 1.25x-skewed demand as the gaming gates. The 09-09
+ * clip-edge trip (78/64) with a 90% ceiling let any sustained foreground load
+ * ride 90% of fceil: direct active-drain cost, and the pre-match heat it adds
+ * lowers in-match fceil through the limiter (self-heat -> fceil -> FPS). The
+ * latch is value-only: idle and light load never leave the 70/68 base cap. */
 #define RFX_D_BIG_CAP_PCT		70
 #define RFX_D_PRIME_CAP_PCT		68
-/* The 70/68 base cap clips once demand clears ~70% (real util ~55%), but the
- * lift used to wait for demand 85 (~68% real): transition bursts riding 70-85
- * stayed pinned below their need and dropped a frame. Trip the sustained
- * ceiling at the clip edge; release back into idle below it. A saturated
- * launch burst then rides 90% of fceil instead of 80%; the latch is value-only,
- * so idle and light load never leave the 70/68 base cap. */
-#define RFX_D_BIG_LIFT_PCT		78
-#define RFX_D_BIG_DROP_PCT		64
-#define RFX_D_BIG_SUSTAINED_CAP_PCT	90
-#define RFX_D_PRIME_SUSTAINED_CAP_PCT	90
+#define RFX_D_BIG_LIFT_PCT		85
+#define RFX_D_BIG_DROP_PCT		68
+#define RFX_D_BIG_SUSTAINED_CAP_PCT	80
+#define RFX_D_PRIME_SUSTAINED_CAP_PCT	80
 
 /* ---- Util EMA: rise instant, decay time-normalised, so the time constant is
  * independent of eval rate. Period = interval removing 1/DIVISOR of the
