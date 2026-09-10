@@ -212,11 +212,13 @@ extern int rfx_setattr_sugov_gki510(struct task_struct *t);
  * stepping to the relief floor. */
 #define RFX_G_COOL_DEEP_PCT		60
 
-/* Gaming ceiling scale, percent of the thermal ceiling. Uniform across every
- * cluster, so unlike a per-cluster cap it cannot skew EAS misfit: it slides the
- * whole OPP ladder down and only the clusters that were already pinned at fceil
- * lose frequency. The cool-down band reads the platform's own throttling
- * (fceil_pct), sampled before this, so relief still tracks the real limiter. */
+/* Gaming ceiling scale, percent of the thermal ceiling, for the tiers that
+ * never render -- Little, and the spill tier on a three-tier SoC. See the
+ * scope rule in rfx_target_freq(): the render tier keeps its full ceiling,
+ * because on a two-tier part it IS the top tier and the derate there only
+ * lengthens execution instead of buying idle. The cool-down band reads the
+ * platform's own throttling (fceil_pct), sampled before this, so relief still
+ * tracks the real limiter. */
 #define RFX_G_CEIL_PCT			92
 
 #define IOWAIT_BOOST_MIN		(SCHED_CAPACITY_SCALE / 8)
@@ -638,10 +640,15 @@ static unsigned int rfx_target_freq(struct rfx_policy *p, unsigned long util,
 		return pol->cur;
 	fceil = rfx_pct(fmax, fceil_pct);
 	fceil = clamp(fceil, fmin, fmax);
-	/* Gaming runs the whole die at a fixed fraction of the ceiling. Applied
-	 * before the util->freq clamp, so a cluster under demand keeps its exact
-	 * util-mapped frequency and only the ones pinned at fceil step down. */
-	if (gaming)
+	/* Gaming derate. Applied before the util->freq clamp, so a cluster under
+	 * demand keeps its exact util-mapped frequency and only the ones pinned
+	 * at fceil step down. Scoped to the tiers that never render: Little, and
+	 * the spill tier where a third tier exists (rfx_cap_is_prime already
+	 * requires it). Derating the render tier bought 0.8W but cost 0.2pp of
+	 * jank on the three-tier part; on a two-tier part the render cluster IS
+	 * the top tier, so the same derate clocks the frame path down instead --
+	 * execution just takes longer and total energy goes UP. */
+	if (gaming && (little || prime))
 		fceil = max(rfx_pct(fceil, RFX_G_CEIL_PCT), fmin);
 
 	util = rfx_apply_headroom(util, max_cap, gaming, little);
