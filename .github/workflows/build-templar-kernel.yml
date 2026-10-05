@@ -75,10 +75,10 @@ jobs:
       - name: Configure 10GB Swap Space
         run: |
           echo "[*] Setting up 10GB swap to prevent OOM..."
-          sudo fallocate -l 10G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=10240
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          sudo fallocate -l 10G /swapfile_10g || sudo dd if=/dev/zero of=/swapfile_10g bs=1M count=10240
+          sudo chmod 600 /swapfile_10g
+          sudo mkswap /swapfile_10g
+          sudo swapon /swapfile_10g
           echo "[✓] Memory & Swap status:"
           free -h
 
