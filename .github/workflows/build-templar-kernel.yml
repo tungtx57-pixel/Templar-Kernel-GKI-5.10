@@ -1,5 +1,5 @@
 name: Build Templar Kernel
-run-name: "Build Templar [${{ inputs.kernel_branch }}] - BakaSU:${{ inputs.enable_kernelsu }} SUSFS:${{ inputs.enable_susfs }}"
+run-name: "Build Kernel [${{ inputs.kernel_branch }}] - BakaSU: ${{ inputs.enable_kernelsu }} SUSFS: ${{ inputs.enable_susfs }}"
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
         description: 'Kernel Branch'
         required: true
         type: choice
-        default: 'Templar-GoogleLTS'
+        default: 'Templar-LinuxStable'
         options:
           - Templar-GoogleLTS
           - Templar-LinuxStable
@@ -253,14 +253,14 @@ jobs:
           if [ "${{ inputs.enable_kernelsu }}" = "true" ]; then
             ROOT_LABEL="BakaSU"
             if [ "${{ inputs.enable_susfs }}" = "true" ]; then
-              ROOT_LABEL="BakaSU-SUSFS"
+              ROOT_LABEL="BakaSU+SUSFS"
             fi
           fi
 
-          sed -i "s/kernel.string=.*/kernel.string=Templar Kernel (${ROOT_LABEL}) by WiL/g" anykernel.sh 2>/dev/null || true
+          sed -i "s/kernel.string=.*/kernel.string=Templar Kernel by WiL (@Steambot12) kang by tungtx0507/g" anykernel.sh 2>/dev/null || true
 
           DATE_TAG=$(date +'%Y%m%d_%H%M')
-          ZIP_NAME="Templar-${{ env.KERNEL_VERSION }}-${{ inputs.kernel_branch }}-${ROOT_LABEL}-${DATE_TAG}.zip"
+          ZIP_NAME="${{ inputs.kernel_branch }}-6.9-${ROOT_LABEL}-${DATE_TAG}.zip"
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
           rm -rf .git .github README.md LICENSE
@@ -271,7 +271,7 @@ jobs:
         with:
           name: ${{ env.ZIP_NAME }}
           path: ${{ github.workspace }}/${{ env.ZIP_NAME }}
-          retention-days: 7
+          retention-days: 15
           if-no-files-found: error
 
       - name: Upload Raw Kernel Image
@@ -279,7 +279,7 @@ jobs:
         with:
           name: "${{ env.KERNEL_IMAGE_NAME }}-${{ inputs.kernel_branch }}-${{ env.COMMIT_HASH }}"
           path: ${{ github.workspace }}/kernel/${{ env.KERNEL_IMAGE_PATH }}
-          retention-days: 7
+          retention-days: 15
 
       - name: Generate Build Summary
         run: |
