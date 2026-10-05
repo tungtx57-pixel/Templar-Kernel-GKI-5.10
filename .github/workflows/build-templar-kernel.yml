@@ -72,6 +72,16 @@ jobs:
           docker-images: true
           swap-storage: false
 
+      - name: Configure 10GB Swap Space
+        run: |
+          echo "[*] Setting up 10GB swap to prevent OOM..."
+          sudo fallocate -l 10G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=10240
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          echo "[✓] Memory & Swap status:"
+          free -h
+
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
@@ -207,7 +217,10 @@ jobs:
           )
 
           make "${MAKE_ARGS[@]}" "${{ env.DEFCONFIG }}"
-          make -j$(nproc) "${MAKE_ARGS[@]}" Image Image.lz4
+          echo "[*] Compiling kernel Image ($(nproc) threads)..."
+          make -j$(nproc) "${MAKE_ARGS[@]}" Image
+          echo "[*] Generating Image.lz4..."
+          make -j$(nproc) "${MAKE_ARGS[@]}" Image.lz4 || true
 
           IMAGE_PATH=""
           if [ -f "out/arch/${{ env.ARCH }}/boot/Image.lz4" ]; then
