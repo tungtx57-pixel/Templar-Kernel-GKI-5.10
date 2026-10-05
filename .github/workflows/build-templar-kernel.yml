@@ -45,7 +45,7 @@ on:
 
 env:
   KERNEL_REPO: 'tungtx57-pixel/Templar-Kernel-GKI-5.10'
-  ANYKERNEL_REPO: 'Steambot12/AnyKernel3-Templar-ReSukiSu'
+  ANYKERNEL_REPO: 'tungtx57-pixel/AnyKernel3-Templar-BakaSU'
   SUSFS_REPO: 'https://gitlab.com/simonpunk/susfs4ksu.git'
   BAKASU_REPO: 'https://github.com/Baka-SU/BakaSU'
   DEFCONFIG: 'gki_defconfig'
