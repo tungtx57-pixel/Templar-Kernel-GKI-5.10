@@ -219,8 +219,6 @@ jobs:
           make "${MAKE_ARGS[@]}" "${{ env.DEFCONFIG }}"
           echo "[*] Compiling kernel Image ($(nproc) threads)..."
           make -j$(nproc) "${MAKE_ARGS[@]}" Image
-          echo "[*] Generating Image.lz4..."
-          make -j$(nproc) "${MAKE_ARGS[@]}" Image.lz4 || true
 
           IMAGE_PATH=""
           if [ -f "out/arch/${{ env.ARCH }}/boot/Image.lz4" ]; then
