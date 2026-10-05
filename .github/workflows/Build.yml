@@ -1,4 +1,5 @@
-name: Build Templar Kernel (GKI 5.10)
+name: Build Templar Kernel
+
 run-name: "Build Templar [${{ inputs.kernel_branch }}] - BakaSU:${{ inputs.enable_kernelsu }} SUSFS:${{ inputs.enable_susfs }}"
 
 on:
