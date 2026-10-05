@@ -1,0 +1,295 @@
+name: Build Templar Kernel (GKI 5.10)
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_branch:
+        description: 'Kernel Branch'
+        required: true
+        type: choice
+        default: 'Templar-GoogleLTS'
+        options:
+          - Templar-GoogleLTS
+          - Templar-LinuxStable
+          - Templar-RC
+          - Templar-OSS
+          - Templar-NoBore
+          - Templar-MGLRU
+          - GoogleLTS-Staging
+          - GoogleLTS-Staging-BORE
+          - GoogleLTS-Staging-Backup
+          - Linux-Staging
+          - Linux1-Staging
+          - LinuxStable-Pure
+      enable_kernelsu:
+        description: 'Enable BakaSU'
+        required: true
+        type: boolean
+        default: true
+      enable_susfs:
+        description: 'Enable SUSFS (requires BakaSU)'
+        required: true
+        type: boolean
+        default: true
+      susfs_branch:
+        description: 'SUSFS branch (simonpunk/susfs4ksu)'
+        required: false
+        type: string
+        default: 'gki-android12-5.10'
+      anykernel_branch:
+        description: 'AnyKernel3 branch'
+        required: false
+        type: string
+        default: 'marble'
+
+env:
+  KERNEL_REPO: 'tungtx57-pixel/Templar-Kernel-GKI-5.10'
+  ANYKERNEL_REPO: 'Steambot12/AnyKernel3-Templar-ReSukiSu'
+  SUSFS_REPO: 'https://gitlab.com/simonpunk/susfs4ksu.git'
+  BAKASU_REPO: 'https://github.com/Baka-SU/BakaSU'
+  DEFCONFIG: 'gki_defconfig'
+  ARCH: 'arm64'
+  SUBARCH: 'arm64'
+  TZ: 'Asia/Ho_Chi_Minh'
+
+jobs:
+  build:
+    name: "Build ${{ inputs.kernel_branch }} [${{ inputs.enable_kernelsu && (inputs.enable_susfs && 'BakaSU+SUSFS' || 'BakaSU') || 'Vanilla' }}]"
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Maximize build disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: false
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ca-certificates cpio curl \
+            flex git git-lfs kmod libelf-dev libssl-dev lld llvm \
+            make python3 zip unzip wget lz4 jq patch \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Download Clang Toolchain (AOSP r416183b)
+        run: |
+          echo "[*] Setting up Clang toolchain..."
+          mkdir -p "$GITHUB_WORKSPACE/toolchain"
+
+          # LineageOS mirror của AOSP clang-r416183b (khớp chính xác với android12-5.10 GKI)
+          git clone --depth=1 -b lineage-20.0 \
+            https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b \
+            "$GITHUB_WORKSPACE/toolchain/clang" || {
+              echo "[!] Mirror lỗi, fallback sang ZyCromerZ Clang..."
+              rm -rf "$GITHUB_WORKSPACE/toolchain/clang"
+              mkdir -p "$GITHUB_WORKSPACE/toolchain/clang"
+              ZYCROMERZ_URL=$(curl -sL https://api.github.com/repos/ZyCromerZ/Clang/releases/latest \
+                | jq -r '.assets[] | select(.name | endswith(".tar.gz")) | .browser_download_url' | head -1)
+              wget -q "$ZYCROMERZ_URL" -O "$GITHUB_WORKSPACE/toolchain/clang.tar.gz"
+              tar -xf "$GITHUB_WORKSPACE/toolchain/clang.tar.gz" -C "$GITHUB_WORKSPACE/toolchain/clang"
+              rm -f "$GITHUB_WORKSPACE/toolchain/clang.tar.gz"
+            }
+
+          export PATH="$GITHUB_WORKSPACE/toolchain/clang/bin:$PATH"
+          clang --version | head -n 1
+
+      - name: Clone Kernel Source
+        run: |
+          echo "[*] Cloning ${{ env.KERNEL_REPO }} (branch: ${{ inputs.kernel_branch }})..."
+          git clone --depth=1 --branch "${{ inputs.kernel_branch }}" \
+            "https://github.com/${{ env.KERNEL_REPO }}.git" \
+            "$GITHUB_WORKSPACE/kernel"
+
+          cd "$GITHUB_WORKSPACE/kernel"
+          KERNEL_VER=$(make kernelversion 2>/dev/null || echo "5.10")
+          echo "KERNEL_VERSION=$KERNEL_VER" >> $GITHUB_ENV
+          echo "COMMIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Integrate BakaSU
+        if: ${{ inputs.enable_kernelsu }}
+        run: |
+          cd "$GITHUB_WORKSPACE/kernel"
+          echo "[*] Integrating BakaSU from ${{ env.BAKASU_REPO }}..."
+
+          # BakaSU setup script tự động clone vào KernelSU và link vào drivers
+          curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash -s main
+
+          DEFCONFIG_PATH="arch/${{ env.ARCH }}/configs/${{ env.DEFCONFIG }}"
+          echo "" >> "$DEFCONFIG_PATH"
+          echo "# BakaSU" >> "$DEFCONFIG_PATH"
+          echo "CONFIG_KSU=y" >> "$DEFCONFIG_PATH"
+
+          # Nếu tắt SUSFS thì dùng Tracepoint Hook chuẩn cho GKI 2.0
+          if [ "${{ inputs.enable_susfs }}" != "true" ]; then
+            echo "CONFIG_KSU_TRACEPOINT_HOOK=y" >> "$DEFCONFIG_PATH"
+            echo "[✓] Configured BakaSU with Tracepoint Hook"
+          fi
+
+          echo "[✓] BakaSU integration complete"
+
+      - name: Integrate SUSFS
+        if: ${{ inputs.enable_kernelsu && inputs.enable_susfs }}
+        run: |
+          cd "$GITHUB_WORKSPACE/kernel"
+          echo "[*] Integrating SUSFS from simonpunk/susfs4ksu (branch: ${{ inputs.susfs_branch }})..."
+
+          git clone --depth=1 --branch "${{ inputs.susfs_branch }}" \
+            "${{ env.SUSFS_REPO }}" \
+            "$GITHUB_WORKSPACE/susfs"
+
+          SUSFS_DIR="$GITHUB_WORKSPACE/susfs"
+
+          # 1. Chép các file C/H của SUSFS vào fs/ và include/linux/
+          cp -rv "$SUSFS_DIR/kernel_patches/fs/"* fs/
+          cp -rv "$SUSFS_DIR/kernel_patches/include/linux/"* include/linux/
+
+          # 2. Patch kernel GKI 5.10
+          PATCH_FILE="$SUSFS_DIR/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch"
+          if [ -f "$PATCH_FILE" ]; then
+            if git apply --check "$PATCH_FILE" 2>/dev/null; then
+              git apply "$PATCH_FILE"
+            else
+              patch -p1 --forward < "$PATCH_FILE" || echo "[!] Patch completed with warnings/fuzz"
+            fi
+          fi
+
+          # 3. Kích hoạt toàn bộ flag SUSFS trong defconfig
+          DEFCONFIG_PATH="arch/${{ env.ARCH }}/configs/${{ env.DEFCONFIG }}"
+          cat >> "$DEFCONFIG_PATH" << 'EOF'
+
+# SUSFS Features
+CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
+CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_ENABLE_LOG=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+CONFIG_KSU_SUSFS_SUS_SU=n
+EOF
+
+          echo "[✓] SUSFS integrated successfully"
+
+      - name: Build Kernel Image
+        run: |
+          cd "$GITHUB_WORKSPACE/kernel"
+          export PATH="$GITHUB_WORKSPACE/toolchain/clang/bin:$PATH"
+          mkdir -p out
+
+          MAKE_ARGS=(
+            ARCH="${{ env.ARCH }}"
+            SUBARCH="${{ env.SUBARCH }}"
+            O=out
+            CC=clang
+            LLVM=1
+            LLVM_IAS=1
+            CROSS_COMPILE=aarch64-linux-gnu-
+            CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
+            KCFLAGS="-D__ANDROID_COMMON_KERNEL__ -Wno-error"
+          )
+
+          make "${MAKE_ARGS[@]}" "${{ env.DEFCONFIG }}"
+          make -j$(nproc) "${MAKE_ARGS[@]}" Image Image.lz4
+
+          IMAGE_PATH=""
+          if [ -f "out/arch/${{ env.ARCH }}/boot/Image.lz4" ]; then
+            IMAGE_PATH="out/arch/${{ env.ARCH }}/boot/Image.lz4"
+          elif [ -f "out/arch/${{ env.ARCH }}/boot/Image" ]; then
+            IMAGE_PATH="out/arch/${{ env.ARCH }}/boot/Image"
+          fi
+
+          if [ -z "$IMAGE_PATH" ]; then
+            echo "::error::Kernel build failed: Image / Image.lz4 not found!"
+            exit 1
+          fi
+
+          echo "KERNEL_IMAGE_PATH=$IMAGE_PATH" >> $GITHUB_ENV
+          echo "KERNEL_IMAGE_NAME=$(basename $IMAGE_PATH)" >> $GITHUB_ENV
+
+      - name: Repack AnyKernel3 Flashable Zip
+        run: |
+          echo "[*] Cloning AnyKernel3 (${{ env.ANYKERNEL_REPO }} @ ${{ inputs.anykernel_branch }})..."
+          git clone --depth=1 --branch "${{ inputs.anykernel_branch }}" \
+            "https://github.com/${{ env.ANYKERNEL_REPO }}.git" \
+            "$GITHUB_WORKSPACE/anykernel3"
+
+          cd "$GITHUB_WORKSPACE/anykernel3"
+          cp -v "$GITHUB_WORKSPACE/kernel/${{ env.KERNEL_IMAGE_PATH }}" .
+
+          if [ -d "$GITHUB_WORKSPACE/kernel/out/arch/${{ env.ARCH }}/boot/dts" ]; then
+            find "$GITHUB_WORKSPACE/kernel/out/arch/${{ env.ARCH }}/boot/dts" -name "*.dtb" -exec cp -v {} . \; 2>/dev/null || true
+          fi
+
+          ROOT_LABEL="Vanilla"
+          if [ "${{ inputs.enable_kernelsu }}" = "true" ]; then
+            ROOT_LABEL="BakaSU"
+            if [ "${{ inputs.enable_susfs }}" = "true" ]; then
+              ROOT_LABEL="BakaSU-SUSFS"
+            fi
+          fi
+
+          sed -i "s/kernel.string=.*/kernel.string=Templar Kernel (${ROOT_LABEL}) by WiL/g" anykernel.sh 2>/dev/null || true
+
+          DATE_TAG=$(date +'%Y%m%d_%H%M')
+          ZIP_NAME="Templar-${{ env.KERNEL_VERSION }}-${{ inputs.kernel_branch }}-${ROOT_LABEL}-${DATE_TAG}.zip"
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+          rm -rf .git .github README.md LICENSE
+          zip -r9 "$GITHUB_WORKSPACE/$ZIP_NAME" . -x "*.git*"
+
+      - name: Upload AnyKernel3 Flashable Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ github.workspace }}/${{ env.ZIP_NAME }}
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload Raw Kernel Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${{ env.KERNEL_IMAGE_NAME }}-${{ inputs.kernel_branch }}-${{ env.COMMIT_HASH }}"
+          path: ${{ github.workspace }}/kernel/${{ env.KERNEL_IMAGE_PATH }}
+          retention-days: 7
+
+      - name: Generate Build Summary
+        run: |
+          cat << 'EOF' >> $GITHUB_STEP_SUMMARY
+          ## 🗡️ Templar Kernel GKI 5.10 Build Complete
+
+          | Parameter | Value |
+          | :--- | :--- |
+          | **Kernel Version** | `${{ env.KERNEL_VERSION }}` |
+          | **Commit** | `${{ env.COMMIT_HASH }}` |
+          | **Kernel Branch** | `${{ inputs.kernel_branch }}` |
+          | **Root Solution** | `${{ env.ROOT_INFO }}` |
+          | **SUSFS Status** | `${{ inputs.enable_kernelsu && inputs.enable_susfs && 'Enabled (simonpunk/susfs4ksu)' || 'Disabled' }}` |
+          | **AnyKernel3 Branch** | `${{ inputs.anykernel_branch }}` |
+          | **Flashable Zip** | `${{ env.ZIP_NAME }}` |
+          | **Kernel Image** | `${{ env.KERNEL_IMAGE_NAME }}` |
+
+          ### 📦 Flash Instructions:
+          1. Khởi động vào Custom Recovery (TWRP / OrangeFox)
+          2. Flash file zip: `${{ env.ZIP_NAME }}`
+          3. Reboot System
+          EOF
+        env:
+          ROOT_INFO: ${{ inputs.enable_kernelsu && (inputs.enable_susfs && 'BakaSU + SUSFS' || 'BakaSU') || 'Vanilla' }}
+          
