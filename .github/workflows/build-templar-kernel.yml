@@ -165,26 +165,26 @@ jobs:
 
           # 3. Kích hoạt toàn bộ flag SUSFS trong defconfig
           DEFCONFIG_PATH="arch/${{ env.ARCH }}/configs/${{ env.DEFCONFIG }}"
-          cat >> "$DEFCONFIG_PATH" << 'EOF'
-
-# SUSFS Features
-CONFIG_KSU_SUSFS=y
-CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-CONFIG_KSU_SUSFS_SUS_PATH=y
-CONFIG_KSU_SUSFS_SUS_MOUNT=y
-CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-CONFIG_KSU_SUSFS_SUS_KSTAT=y
-CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
-CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
-CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-CONFIG_KSU_SUSFS_ENABLE_LOG=y
-CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-CONFIG_KSU_SUSFS_SUS_SU=n
-EOF
+          {
+            echo ""
+            echo "# SUSFS Features"
+            echo "CONFIG_KSU_SUSFS=y"
+            echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y"
+            echo "CONFIG_KSU_SUSFS_SUS_PATH=y"
+            echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
+            echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y"
+            echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y"
+            echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y"
+            echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y"
+            echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y"
+            echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y"
+            echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y"
+            echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y"
+            echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y"
+            echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y"
+            echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y"
+            echo "CONFIG_KSU_SUSFS_SUS_SU=n"
+          } >> "$DEFCONFIG_PATH"
 
           echo "[✓] SUSFS integrated successfully"
 
@@ -286,22 +286,22 @@ EOF
             SUSFS_INFO="Enabled (simonpunk/susfs4ksu)"
           fi
 
-          cat << EOF >> $GITHUB_STEP_SUMMARY
-          ## 🗡️ Templar Kernel GKI 5.10 Build Complete
-
-          | Parameter | Value |
-          | :--- | :--- |
-          | **Kernel Version** | \`${{ env.KERNEL_VERSION }}\` |
-          | **Commit** | \`${{ env.COMMIT_HASH }}\` |
-          | **Kernel Branch** | \`${{ inputs.kernel_branch }}\` |
-          | **Root Solution** | \`$ROOT_INFO\` |
-          | **SUSFS Status** | \`$SUSFS_INFO\` |
-          | **AnyKernel3 Branch** | \`${{ inputs.anykernel_branch }}\` |
-          | **Flashable Zip** | \`${{ env.ZIP_NAME }}\` |
-          | **Kernel Image** | \`${{ env.KERNEL_IMAGE_NAME }}\` |
-
-          ### 📦 Flash Instructions:
-          1. Khởi động vào Custom Recovery (TWRP / OrangeFox)
-          2. Flash file zip: \`${{ env.ZIP_NAME }}\`
-          3. Reboot System
-          EOF
+          {
+            echo "## 🗡️ Templar Kernel GKI 5.10 Build Complete"
+            echo ""
+            echo "| Parameter | Value |"
+            echo "| :--- | :--- |"
+            echo "| **Kernel Version** | \`${{ env.KERNEL_VERSION }}\` |"
+            echo "| **Commit** | \`${{ env.COMMIT_HASH }}\` |"
+            echo "| **Kernel Branch** | \`${{ inputs.kernel_branch }}\` |"
+            echo "| **Root Solution** | \`$ROOT_INFO\` |"
+            echo "| **SUSFS Status** | \`$SUSFS_INFO\` |"
+            echo "| **AnyKernel3 Branch** | \`${{ inputs.anykernel_branch }}\` |"
+            echo "| **Flashable Zip** | \`${{ env.ZIP_NAME }}\` |"
+            echo "| **Kernel Image** | \`${{ env.KERNEL_IMAGE_NAME }}\` |"
+            echo ""
+            echo "### 📦 Flash Instructions:"
+            echo "1. Khởi động vào Custom Recovery (TWRP / OrangeFox)"
+            echo "2. Flash file zip: \`${{ env.ZIP_NAME }}\`"
+            echo "3. Reboot System"
+          } >> $GITHUB_STEP_SUMMARY
