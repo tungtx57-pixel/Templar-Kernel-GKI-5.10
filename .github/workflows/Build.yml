@@ -1,5 +1,4 @@
 name: Build Templar Kernel
-
 run-name: "Build Templar [${{ inputs.kernel_branch }}] - BakaSU:${{ inputs.enable_kernelsu }} SUSFS:${{ inputs.enable_susfs }}"
 
 on:
@@ -300,9 +299,4 @@ EOF
           | **AnyKernel3 Branch** | \`${{ inputs.anykernel_branch }}\` |
           | **Flashable Zip** | \`${{ env.ZIP_NAME }}\` |
           | **Kernel Image** | \`${{ env.KERNEL_IMAGE_NAME }}\` |
-
-          ### 📦 Flash Instructions:
-          1. Khởi động vào Custom Recovery (TWRP / OrangeFox)
-          2. Flash file zip: \`${{ env.ZIP_NAME }}\`
-          3. Reboot System
           EOF
